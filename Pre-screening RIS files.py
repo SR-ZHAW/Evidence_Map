@@ -52,18 +52,7 @@ Integrated agriculture-aquaculture OR Integrated aquaculture-agriculture OR Aqua
 # ── STRING B — Geography terms ────────────────────────────────────
 # Can appear in TITLE or ABSTRACT
 STRING_B = """
-SSA OR Sub-Saharan Africa OR Sub Saharan Africa OR Saharan OR
-Angola OR Benin OR Botswana OR Burkina Faso OR Burundi OR Cameroon OR
-Cape Verde OR Chad OR Comoros OR Congo OR
-Democratic Republic of Congo OR Djibouti OR Equatorial Guinea OR
-Eritrea OR Eswatini OR Ethiopia OR Gabon OR Gambia OR Ghana OR
-Guinea OR Guinea-Bissau OR Ivory Coast OR Kenya OR Lesotho OR
-Liberia OR Madagascar OR Malawi OR Mali OR Mauritania OR Mauritius OR
-Mozambique OR Namibia OR Niger OR Nigeria OR Rwanda OR Senegal OR
-Seychelles OR Sierra Leone OR Somalia OR South Africa OR
-South Sudan OR Sudan OR Tanzania OR Togo OR Uganda OR Zambia OR
-Zimbabwe OR West Africa OR East Africa OR Southern Africa OR
-Central Africa OR SSA
+SSA OR "Sub-Saharan Africa" OR "Sub Saharan Africa" OR Saharan OR Angola OR Benin OR Botswana OR "Burkina Faso" OR Burundi OR Cameroon OR "Cape Verde" OR "Central African Republic" OR Chad OR Comoros OR Congo OR "Côte d'Ivoire" OR "Ivory Coast" OR "Democratic Republic of Congo" OR Djibouti OR "Equatorial Guinea" OR Eritrea OR Eswatini OR Ethiopia OR Gabon OR Gambia OR Ghana OR Guinea OR "Guinea-Bissau" OR Kenya OR Lesotho OR Liberia OR Madagascar OR Malawi OR Mali OR Mauritania OR Mauritius OR Mozambique OR Namibia OR Niger OR Nigeria OR Rwanda OR "São Tomé and Príncipe" OR Senegal OR Seychelles OR "Sierra Leone" OR Somalia OR "South Africa" OR "South Sudan" OR Sudan OR Tanzania OR Togo OR Uganda OR Zambia OR Zimbabwe OR "West Africa" OR "East Africa" OR "Southern Africa" OR "Central Africa"
 """
 #addes wild card terms: Aquaculture OR Pond OR Fish OR RAS OR DFT OR drip irrigation OR Plant OR Greens AND Africa
 
