@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+csv_to_ris.py
+
+Convert every CSV file in a folder into a single combined RIS file,
+making sure the DOI field is included for each reference.
+
+USAGE
+-----
+    python csv_to_ris.py /path/to/csv_folder -o combined.ris
+
+    # Optional: set a default reference type (default is JOUR = journal article)
+    python csv_to_ris.py /path/to/csv_folder -o combined.ris --type JOUR
+
+WHAT IT EXPECTS
+----------------
+Each CSV should have a header row. Column names don't have to match
+exactly — the script recognizes many common variants (e.g. "Article Title",
+"Title", "DOI", "Digital Object Identifier", "Authors", "Author(s)", etc.)
+used by exports from Scopus, Web of Science, PubMed, Zotero, and similar
+tools. Unrecognized columns are simply ignored.
+
+If a row has no usable DOI, it is still exported, but a warning is
+printed so you can spot-check the source CSV.
+"""
+
+# =====================================================================
+# EDIT THESE THREE LINES WITH YOUR OWN PATHS, THEN JUST RUN THE SCRIPT
+# (no need to type anything extra on the command line if you set these)
+# ====================================================================
+INPUT_FOLDER = ""     # <- LINE 31: folder containing your CSVs
+OUTPUT_FILE  = "xxx.ris"   # <- LINE 32: where the RIS file should be saved
+REF_TYPE     = "JOUR"                         # <- LINE 33: reference type, e.g. JOUR, CONF, BOOK
+# =====================================================================
+
+import argparse
+import csv
+import glob
+import os
+import sys
+
+# Map RIS tag -> list of possible column-header aliases (lowercase, no punctuation)
+FIELD_ALIASES = {
+    "TI": ["title", "article title", "document title", "primary title", "project title"],
+    "AU": ["author", "authors", "author(s)", "author full names", "creators"],
+    "PY": ["year", "publication year", "pub year", "date", "publication date",
+           "project start date", "start date"],
+    "T2": ["journal", "source title", "journal name", "publication title",
+           "secondary title", "conference name"],
+    "T3": ["project acronym", "acronym", "series title"],
+    "VL": ["volume"],
+    "IS": ["issue", "number"],
+    "SP": ["start page", "startpage", "pages", "page start"],
+    "EP": ["end page", "endpage", "page end"],
+    "DO": ["doi", "digital object identifier", "doi link"],
+    "AB": ["abstract", "summary", "teaser", "description"],
+    "UR": ["url", "link", "web address"],
+    "KW": ["keywords", "author keywords", "index keywords", "programmes",
+           "fields of science", "domains of application"],
+    "SN": ["issn", "isbn"],
+    "PB": ["publisher"],
+    "AN": ["id", "record number", "project id", "accession number"],
+}
+
+RIS_FIELD_ORDER = ["TY", "AU", "TI", "T2", "T3", "PY", "VL", "IS", "SP", "EP",
+                   "DO", "AB", "UR", "KW", "SN", "PB", "AN"]
+
+
+def detect_delimiter(sample_line):
+    """Guess the delimiter used by a CSV file: comma, semicolon, or tab.
+    Many European exports (e.g. CORDIS, Excel with non-US locale) use ';'."""
+    counts = {d: sample_line.count(d) for d in [",", ";", "\t"]}
+    best = max(counts, key=counts.get)
+    return best if counts[best] > 0 else ","
+
+
+def normalize(header):
+    return header.strip().lower().replace("_", " ").replace("-", " ")
+
+
+def build_column_map(fieldnames):
+    """Return dict: RIS tag -> actual CSV column name (or None if not found)."""
+    normalized = {normalize(f): f for f in fieldnames}
+    col_map = {}
+    for tag, aliases in FIELD_ALIASES.items():
+        col_map[tag] = None
+        for alias in aliases:
+            if alias in normalized:
+                col_map[tag] = normalized[alias]
+                break
+    return col_map
+
+
+def split_authors(raw):
+    if not raw:
+        return []
+    for sep in [";", " and ", "\n"]:
+        if sep in raw:
+            return [a.strip() for a in raw.split(sep) if a.strip()]
+    # fall back: single author or comma-separated "Last, First" already
+    return [raw.strip()]
+
+
+def row_to_ris(row, col_map, ref_type, source_file, row_num, missing_doi_count):
+    lines = [f"TY  - {ref_type}"]
+
+    authors = split_authors(row.get(col_map["AU"], "")) if col_map["AU"] else []
+    for a in authors:
+        lines.append(f"AU  - {a}")
+
+    for tag in ["TI", "T2", "T3", "PY", "VL", "IS", "SP", "EP", "DO", "AB", "UR", "KW", "SN", "PB", "AN"]:
+        col = col_map.get(tag)
+        if not col:
+            continue
+        value = (row.get(col) or "").strip()
+        if not value:
+            continue
+        if tag == "PY":
+            value = value[:4]  # keep just the year if a full date was given
+        lines.append(f"{tag}  - {value}")
+
+    if not col_map.get("DO") or not (row.get(col_map["DO"]) or "").strip():
+        missing_doi_count[0] += 1
+        print(f"  [warning] no DOI found for row {row_num} in {os.path.basename(source_file)}",
+              file=sys.stderr)
+
+    lines.append("ER  - ")
+    return "\n".join(lines)
+
+
+def convert_folder(folder, output_path, ref_type):
+    csv_files = sorted(glob.glob(os.path.join(folder, "*.csv")))
+    if not csv_files:
+        print(f"No CSV files found in {folder}", file=sys.stderr)
+        sys.exit(1)
+
+    entries = []
+    total_rows = 0
+    missing_doi_count = [0]
+
+    for csv_path in csv_files:
+        print(f"Processing {csv_path} ...")
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            first_line = f.readline()
+            f.seek(0)
+            delimiter = detect_delimiter(first_line)
+            reader = csv.DictReader(f, delimiter=delimiter)
+            if not reader.fieldnames:
+                print(f"  [skip] {csv_path} has no header row", file=sys.stderr)
+                continue
+            col_map = build_column_map(reader.fieldnames)
+            if not col_map["DO"]:
+                print(f"  [warning] no DOI column detected in {csv_path} "
+                      f"(columns: {reader.fieldnames})", file=sys.stderr)
+
+            for i, row in enumerate(reader, start=2):  # start=2: header is line 1
+                total_rows += 1
+                entries.append(row_to_ris(row, col_map, ref_type, csv_path, i, missing_doi_count))
+
+    with open(output_path, "w", encoding="utf-8") as out:
+        out.write("\n\n".join(entries) + "\n")
+
+    print(f"\nDone. Wrote {len(entries)} references from {len(csv_files)} CSV file(s) "
+          f"to {output_path}")
+    if missing_doi_count[0]:
+        print(f"{missing_doi_count[0]} of {total_rows} rows had no DOI (see warnings above).")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Convert a folder of CSVs into one RIS file.")
+    parser.add_argument("folder", nargs="?", default=INPUT_FOLDER, help="Folder containing the .csv files")
+    parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output .ris file path")
+    parser.add_argument("--type", default=REF_TYPE,
+                        help="RIS reference type to use for every entry (default: JOUR)")
+    args = parser.parse_args()
+
+    convert_folder(args.folder, args.output, args.type)
+
+
+if __name__ == "__main__":
+    main()
+
