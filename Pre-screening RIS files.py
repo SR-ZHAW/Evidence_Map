@@ -38,23 +38,31 @@ OUTPUT_RIS_NAME = ""
 # ── STRING A — Technology terms ───────────────────────────────────
 # Must appear in the TITLE
 STRING_A = """
-aquaponic* OR hydroponic* OR aeroponic* OR bioponic* OR soilless* OR
-nutrient film technique OR media bed OR ebb and flow system OR
-deep water culture OR deep flow technique OR
-recirculating aquaculture OR biofloc* OR flocponic* OR raceway* OR
-pond culture OR pond aquaculture OR pond fish* OR fish pond* OR
-land-based aquaculture OR landlocked aquaculture OR
-integrated aquaculture OR
-Integrated aqua-agriculture OR Integrated agri-aquaculture OR
-Integrated agriculture-aquaculture OR Integrated aquaculture-agriculture OR Aquaculture OR Pond OR Fish OR RAS OR DFT OR drip irrigation OR Plant OR Greens
+    aquaponic* OR hydroponic* OR aeroponic* OR bioponic* OR soilless*
+    OR "nutrient film technique" OR "media bed" OR "ebb and flow system" OR "deep water culture" OR "deep flow technique"
+    OR "recirculating aquaculture" OR biofloc* OR flocponic* OR raceway* OR "pond culture"
+    OR "pond aquaculture" OR "pond fish*" OR "fish pond*" OR "land-based aquaculture" OR "landlocked aquaculture"
+    OR "integrated aquaculture" OR "integrated aqua-agriculture" OR "integrated agri-aquaculture" OR "integrated agriculture-aquaculture" OR "integrated aquaculture-agriculture"
+    OR aquaculture OR pond OR fish OR RAS OR DFT
+    OR "drip irrigation" OR plant OR greens OR food
 """
-
+ 
 # ── STRING B — Geography terms ────────────────────────────────────
 # Can appear in TITLE or ABSTRACT
 STRING_B = """
-SSA OR "Sub-Saharan Africa" OR "Sub Saharan Africa" OR Saharan OR Angola OR Benin OR Botswana OR "Burkina Faso" OR Burundi OR Cameroon OR "Cape Verde" OR "Central African Republic" OR Chad OR Comoros OR Congo OR "Côte d'Ivoire" OR "Ivory Coast" OR "Democratic Republic of Congo" OR Djibouti OR "Equatorial Guinea" OR Eritrea OR Eswatini OR Ethiopia OR Gabon OR Gambia OR Ghana OR Guinea OR "Guinea-Bissau" OR Kenya OR Lesotho OR Liberia OR Madagascar OR Malawi OR Mali OR Mauritania OR Mauritius OR Mozambique OR Namibia OR Niger OR Nigeria OR Rwanda OR "São Tomé and Príncipe" OR Senegal OR Seychelles OR "Sierra Leone" OR Somalia OR "South Africa" OR "South Sudan" OR Sudan OR Tanzania OR Togo OR Uganda OR Zambia OR Zimbabwe OR "West Africa" OR "East Africa" OR "Southern Africa" OR "Central Africa"
+    SSA OR "Sub-Saharan Africa" OR "Sub Saharan Africa" OR Saharan OR Angola
+    OR Benin OR Botswana OR "Burkina Faso" OR Burundi OR Cameroon
+    OR "Cape Verde" OR "Central African Republic" OR Chad OR Comoros OR Congo
+    OR "Côte d'Ivoire" OR "Ivory Coast" OR "Democratic Republic of Congo" OR Djibouti OR "Equatorial Guinea"
+    OR Eritrea OR Eswatini OR Ethiopia OR Gabon OR Gambia
+    OR Ghana OR Guinea OR "Guinea-Bissau" OR Kenya OR Lesotho
+    OR Liberia OR Madagascar OR Malawi OR Mali OR Mauritania
+    OR Mauritius OR Mozambique OR Namibia OR Niger OR Nigeria
+    OR Rwanda OR "São Tomé and Príncipe" OR Senegal OR Seychelles OR "Sierra Leone"
+    OR Somalia OR "South Africa" OR "South Sudan" OR Sudan OR Tanzania
+    OR Togo OR Uganda OR Zambia OR Zimbabwe OR "West Africa"
+    OR "East Africa" OR "Southern Africa" OR "Central Africa"
 """
-#addes wild card terms: Aquaculture OR Pond OR Fish OR RAS OR DFT OR drip irrigation OR Plant OR Greens AND Africa
 
 # ══════════════════════════════════════════════════════════════════
 # END CONFIGURATION
