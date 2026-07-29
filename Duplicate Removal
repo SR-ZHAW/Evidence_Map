@@ -1,0 +1,368 @@
+"""
+dedupe_ris.py
+=============
+
+Compares a Google Scholar RIS export against ANY NUMBER of bibliographic-
+database RIS exports sitting in one folder, and removes any Google Scholar
+entries whose TITLE and YEAR exactly match (case-insensitive, spaces
+ignored) an entry found in any of the database files.
+
+USAGE
+-----
+1. Put your database exports (Scopus, WoS, PubMed, etc.) in one folder,
+   and your Google Scholar export(s) in a separate folder.
+2. Edit the CONFIG section below:
+     - DATABASE_FOLDER   -> folder containing ALL your database .ris files
+                             (any number of files; each is matched
+                             separately, so you always know which one a
+                             duplicate came from)
+     - SCHOLAR_FOLDER     -> folder containing your Google Scholar .ris
+                             file(s). If there's more than one, they are
+                             all combined into a single list of records
+                             to check.
+     - OUTPUT_* paths    -> where you want the results written
+3. Run:  python dedupe_ris.py
+4. You get:
+     - <output_unique>   : Google Scholar records with NO duplicate found
+     - <output_excluded> : Google Scholar records that WERE duplicates,
+                            each annotated (as an RIS "N1" note field)
+                            with which file(s) it matched and the
+                            title/year of the matching record
+     - <output_report>   : a CSV log of every duplicate found, showing
+                            exactly which source file each match came from
+
+NOTES ON MATCHING
+------------------
+- Title comparison: lowercased, all whitespace removed (so "Deep  Learning"
+  and "deep learning" are treated as identical), and RIS line-continuation
+  artifacts stripped.
+- Year comparison: exact match required (as a string), using the RIS PY
+  (or Y1) field, first 4 digits only (so "2020/05/01" still matches "2020").
+- If a record has no title or no year, it cannot be matched and is treated
+  as unique by default (see SKIP_IF_MISSING_YEAR below to change that).
+
+RIS TAG VARIATIONS
+-------------------
+Different RIS exporters use different tags for title/year. This script
+checks a list of common tags for each field:
+    TITLE tags checked (in priority order): TI, T1, TT
+    YEAR  tags checked (in priority order): PY, Y1, Y2
+
+If your files use something else, add the tag to TITLE_TAGS / YEAR_TAGS
+near the top of the script.
+"""
+
+import re
+import os
+import glob
+
+# ============================== CONFIG ===================================
+
+# Folder containing your DATABASE .ris exports (Scopus, WoS, PubMed, etc.)
+# Every .ris file in this folder is treated as a separate database source.
+DATABASE_FOLDER = ""
+
+# Folder containing your GOOGLE SCHOLAR .ris export(s).
+# Every .ris file in this folder is combined into one list of records
+# to be checked against the databases above.
+SCHOLAR_FOLDER = ""
+
+# Output files
+OUTPUT_UNIQUE_FILE = "xxx.ris"     # non-duplicates
+OUTPUT_EXCLUDED_FILE = "xxx.ris"  # duplicates found
+OUTPUT_REPORT_FILE = "xxx.csv"           # human-readable log
+
+# If True, a Scholar record with a missing/unreadable YEAR is never
+# considered a duplicate (kept in the unique file) even if the title matches.
+# If False, a missing year is treated as matching only other missing years.
+SKIP_IF_MISSING_YEAR = True
+
+# RIS tags to look for (in priority order) for each field
+TITLE_TAGS = ["TI", "T1", "TT"]
+YEAR_TAGS = ["PY", "Y1", "Y2"]
+
+# ===========================================================================
+
+
+def parse_ris(filepath):
+    """
+    Parse an RIS file into a list of records.
+    Each record is a dict:
+        {
+            "tags": [(tag, value), (tag, value), ...],  # in original order
+            "raw": "full original text block of this record"
+        }
+    This simple line-based parser handles the standard RIS format:
+        TY  - JOUR
+        TI  - Some Title
+        ...
+        ER  -
+    """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"RIS file not found: {filepath}")
+
+    with open(filepath, "r", encoding="utf-8-sig", errors="replace") as f:
+        lines = f.readlines()
+
+    records = []
+    current_tags = []
+    current_raw_lines = []
+    last_tag = None
+
+    # RIS tag line looks like: "AB  - some text" (2 letters, spaces, dash)
+    tag_pattern = re.compile(r"^([A-Za-z0-9]{2})\s*-\s?(.*)$")
+
+    for line in lines:
+        stripped = line.rstrip("\n").rstrip("\r")
+
+        match = tag_pattern.match(stripped)
+        if match:
+            tag, value = match.group(1).upper(), match.group(2)
+            current_tags.append([tag, value])
+            current_raw_lines.append(line)
+            last_tag = tag
+
+            if tag == "ER":
+                records.append({
+                    "tags": current_tags,
+                    "raw": "".join(current_raw_lines)
+                })
+                current_tags = []
+                current_raw_lines = []
+                last_tag = None
+        else:
+            # Continuation line (wrapped text) belongs to the previous tag
+            if stripped.strip() == "":
+                current_raw_lines.append(line)
+                continue
+            if current_tags:
+                current_tags[-1][1] += " " + stripped.strip()
+            current_raw_lines.append(line)
+
+    # In case the file doesn't end cleanly with ER, salvage the last record
+    if current_tags:
+        records.append({
+            "tags": current_tags,
+            "raw": "".join(current_raw_lines)
+        })
+
+    return records
+
+
+def get_field(record, tag_list):
+    """Return the first matching tag's value from a record, or None."""
+    tags_dict = {}
+    for tag, value in record["tags"]:
+        if tag not in tags_dict:  # keep first occurrence
+            tags_dict[tag] = value
+    for tag in tag_list:
+        if tag in tags_dict and tags_dict[tag].strip():
+            return tags_dict[tag].strip()
+    return None
+
+
+def normalize_title(title):
+    """Lowercase and strip ALL whitespace for a strict, space-insensitive match."""
+    if title is None:
+        return None
+    return re.sub(r"\s+", "", title.lower())
+
+
+def normalize_year(year):
+    """Extract the first 4-digit number found (handles '2020/05/01' etc.)."""
+    if year is None:
+        return None
+    match = re.search(r"\d{4}", year)
+    return match.group(0) if match else None
+
+
+def build_index(records, source_name):
+    """
+    Build a lookup dict: {(normalized_title, normalized_year): [records...]}
+    Also returns list of (record, title, year) for records that couldn't
+    be indexed (missing title or year), for transparency.
+    """
+    index = {}
+    unindexed = []
+    for rec in records:
+        raw_title = get_field(rec, TITLE_TAGS)
+        raw_year = get_field(rec, YEAR_TAGS)
+        norm_title = normalize_title(raw_title)
+        norm_year = normalize_year(raw_year)
+
+        if norm_title is None or norm_year is None:
+            unindexed.append((rec, raw_title, raw_year))
+            continue
+
+        key = (norm_title, norm_year)
+        index.setdefault(key, []).append({
+            "record": rec,
+            "title": raw_title,
+            "year": raw_year,
+            "source": source_name
+        })
+    return index, unindexed
+
+
+def find_duplicate(scholar_title, scholar_year, indexes):
+    """
+    Look for (title, year) in each database index.
+    Returns a list of matches: [{"source":..., "title":..., "year":...}, ...]
+    (usually 0 or 1 match per database, but a database could itself contain
+    duplicates, so we return all matches found).
+    """
+    matches = []
+    norm_title = normalize_title(scholar_title)
+    norm_year = normalize_year(scholar_year)
+
+    if norm_title is None or norm_year is None:
+        return matches  # can't match without both fields
+
+    key = (norm_title, norm_year)
+    for source_name, index in indexes:
+        if key in index:
+            for entry in index[key]:
+                matches.append(entry)
+    return matches
+
+
+def write_ris(records, filepath):
+    """Write a list of records (using their raw text) back out as an RIS file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(rec["raw"])
+            if not rec["raw"].endswith("\n"):
+                f.write("\n")
+            f.write("\n")  # blank line between records
+
+
+def write_excluded_ris(excluded_entries, filepath):
+    """
+    Write excluded Google Scholar records to an RIS file, with an added
+    N1 (notes) tag documenting which source(s) they duplicated.
+    """
+    with open(filepath, "w", encoding="utf-8") as f:
+        for entry in excluded_entries:
+            rec = entry["record"]
+            note_lines = []
+            for m in entry["matches"]:
+                note_lines.append(
+                    f"Duplicate of record in {m['source']} "
+                    f"(Title: \"{m['title']}\", Year: {m['year']})"
+                )
+            note_text = " | ".join(note_lines)
+
+            f.write(rec["raw"])
+            if not rec["raw"].endswith("\n"):
+                f.write("\n")
+            f.write(f"N1  - DUPLICATE CHECK: {note_text}\n")
+            f.write("\n")
+
+
+def write_report_csv(excluded_entries, filepath):
+    """Write a simple CSV log of all excluded duplicates for easy review."""
+    import csv
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Scholar_Title", "Scholar_Year",
+            "Matched_Source_File", "Matched_Title", "Matched_Year"
+        ])
+        for entry in excluded_entries:
+            scholar_title = entry["scholar_title"]
+            scholar_year = entry["scholar_year"]
+            for m in entry["matches"]:
+                writer.writerow([
+                    scholar_title, scholar_year,
+                    m["source"], m["title"], m["year"]
+                ])
+
+
+def find_ris_files(folder, label):
+    """Return a sorted list of all .ris filepaths in a folder."""
+    if not os.path.isdir(folder):
+        raise NotADirectoryError(f"{label} folder not found: {folder}")
+
+    ris_files = sorted(glob.glob(os.path.join(folder, "*.ris")))
+    if not ris_files:
+        raise FileNotFoundError(f"No .ris files found in {label} folder: {folder}")
+
+    return ris_files
+
+
+def main():
+    print(f"Scanning database folder: {DATABASE_FOLDER}")
+    database_filepaths = find_ris_files(DATABASE_FOLDER, "database")
+    print(f"  Database files ({len(database_filepaths)}):")
+    for p in database_filepaths:
+        print(f"    - {os.path.basename(p)}")
+
+    print(f"Scanning Google Scholar folder: {SCHOLAR_FOLDER}")
+    scholar_filepaths = find_ris_files(SCHOLAR_FOLDER, "Google Scholar")
+    print(f"  Scholar files ({len(scholar_filepaths)}):")
+    for p in scholar_filepaths:
+        print(f"    - {os.path.basename(p)}")
+
+    print("Parsing RIS files...")
+    scholar_records = []
+    for sp in scholar_filepaths:
+        recs = parse_ris(sp)
+        print(f"  {os.path.basename(sp)}: {len(recs)} records")
+        scholar_records.extend(recs)
+    print(f"  Total Scholar records: {len(scholar_records)}")
+
+    indexes = []
+    total_unindexed = 0
+    for db_path in database_filepaths:
+        db_records = parse_ris(db_path)
+        source_name = os.path.basename(db_path)
+        print(f"  {source_name}: {len(db_records)} records")
+        db_index, db_unindexed = build_index(db_records, source_name)
+        total_unindexed += len(db_unindexed)
+        indexes.append((source_name, db_index))
+
+    if total_unindexed:
+        print(f"  Note: {total_unindexed} database records had no usable "
+              f"title/year and were skipped for matching purposes.")
+
+    print("Comparing Google Scholar records against the databases...")
+    unique_records = []
+    excluded_entries = []
+
+    for rec in scholar_records:
+        title = get_field(rec, TITLE_TAGS)
+        year = get_field(rec, YEAR_TAGS)
+
+        if (title is None or year is None) and SKIP_IF_MISSING_YEAR:
+            # Can't be matched -> keep as unique
+            unique_records.append(rec)
+            continue
+
+        matches = find_duplicate(title, year, indexes)
+
+        if matches:
+            excluded_entries.append({
+                "record": rec,
+                "scholar_title": title,
+                "scholar_year": year,
+                "matches": matches
+            })
+        else:
+            unique_records.append(rec)
+
+    print(f"Done comparing: {len(unique_records)} unique, "
+          f"{len(excluded_entries)} duplicates found.")
+
+    print("Writing output files...")
+    os.makedirs(os.path.dirname(OUTPUT_UNIQUE_FILE), exist_ok=True)
+    write_ris(unique_records, OUTPUT_UNIQUE_FILE)
+    write_excluded_ris(excluded_entries, OUTPUT_EXCLUDED_FILE)
+    write_report_csv(excluded_entries, OUTPUT_REPORT_FILE)
+
+    print(f"  Unique (non-duplicate) records  -> {OUTPUT_UNIQUE_FILE}")
+    print(f"  Excluded (duplicate) records    -> {OUTPUT_EXCLUDED_FILE}")
+    print(f"  Duplicate match report (CSV)    -> {OUTPUT_REPORT_FILE}")
+
+
+if __name__ == "__main__":
+    main()
